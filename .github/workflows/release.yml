@@ -1,0 +1,89 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out tagged commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.24.0
+          run_install: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build
+
+      - name: Validate production bundle
+        run: |
+          test -f dist/index.js
+          node --input-type=module <<'NODE'
+          import { readFileSync } from "node:fs";
+          import { builtinModules } from "node:module";
+
+          const bundle = readFileSync("dist/index.js", "utf8");
+          const packageJson = JSON.parse(readFileSync("package.json", "utf8"));
+          const runtimePackages = Object.keys(packageJson.dependencies ?? {});
+          const builtins = new Set([...builtinModules, ...builtinModules.map((name) => `node:${name}`)]);
+          const imports = [
+            ...bundle.matchAll(/\bimport\s+(?:[^"'()]+?\s+from\s+)?["']([^"']+)["']/g),
+            ...bundle.matchAll(/\bimport\s*\(\s*["']([^"']+)["']\s*\)/g),
+            ...bundle.matchAll(/(?:^|[^A-Za-z0-9_$])(?:__require|require)\s*\(\s*["']([^"']+)["']\s*\)/g),
+          ].map((match) => match[1]);
+          const unresolved = [...new Set(imports.filter((specifier) => {
+            if (builtins.has(specifier)) return false;
+            return runtimePackages.some((name) => specifier === name || specifier.startsWith(`${name}/`));
+          }))];
+
+          if (unresolved.length > 0) {
+            console.error(`Unresolved bundled runtime imports: ${unresolved.join(", ")}`);
+            process.exit(1);
+          }
+          NODE
+
+      - name: Package release assets
+        run: |
+          rm -rf release
+          mkdir -p release
+          cp dist/index.js release/index.js
+          tar -czf pelican-wake-proxy.tar.gz -C release index.js
+          sha256sum pelican-wake-proxy.tar.gz > pelican-wake-proxy.tar.gz.sha256
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          assets=(pelican-wake-proxy.tar.gz pelican-wake-proxy.tar.gz.sha256)
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "${assets[@]}" --clobber
+          else
+            gh release create "$TAG" "${assets[@]}" --title "$TAG" --generate-notes
+          fi

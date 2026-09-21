@@ -64,3 +64,42 @@ Run checks with:
 pnpm typecheck
 pnpm test
 ```
+
+## Release and Pelican Installation
+
+Build the production bundle locally with:
+
+```sh
+pnpm build
+```
+
+Create and push a semantic version tag to publish a release:
+
+```sh
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+The tag-based GitHub Actions workflow publishes these stable-named assets:
+
+```text
+pelican-wake-proxy.tar.gz
+pelican-wake-proxy.tar.gz.sha256
+```
+
+The `pelican/install.sh` file is source material for the custom Pelican egg.
+It downloads and verifies the selected public GitHub Release artifact instead
+of cloning the repository or compiling it. Set `APP_VERSION` to `latest` or a
+specific tag such as `v0.1.0`; `latest` is convenient, while a pinned tag is
+more reproducible.
+
+The archive contains only `index.js`, so the eventual Node 24 Pelican Yolk
+(`ghcr.io/pelican-eggs/yolks:nodejs_24`) can start it with:
+
+```sh
+PROXY_HOST=0.0.0.0 PROXY_PORT={{SERVER_PORT}} node index.js
+```
+
+No `node_modules`, pnpm, TypeScript compiler, repository checkout, or dotenvx
+is required at runtime. Pelican variables are read directly from
+`process.env`.
