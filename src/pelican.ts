@@ -27,19 +27,30 @@ const request = async (
   signal?: AbortSignal,
 ): Promise<Response> => {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), config.pelican.requestTimeoutMs);
+  const url = new URL(path, config.pelican.baseUrl);
+  let timedOut = false;
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, config.pelican.requestTimeoutMs);
 
   const abort = (): void => controller.abort();
   signal?.addEventListener("abort", abort, { once: true });
 
   try {
-    return await fetch(new URL(path, config.pelican.baseUrl), {
+    return await fetch(url, {
       ...init,
       signal: controller.signal,
     });
   } catch (error: unknown) {
-    if (controller.signal.aborted) {
-      throw new Error(`Pelican request timed out or was cancelled: ${path}`);
+    if (timedOut) {
+      throw new Error(
+        `Pelican request timed out after ${config.pelican.requestTimeoutMs}ms: ${url.origin}${url.pathname}`,
+      );
+    }
+
+    if (signal?.aborted) {
+      throw new Error(`Pelican request was cancelled: ${url.origin}${url.pathname}`);
     }
 
     throw new Error(
