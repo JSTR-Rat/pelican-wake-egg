@@ -251,11 +251,11 @@ const parseStatus = (value: unknown): MinecraftStatus => {
   };
 };
 
-const createStatusHandshake = (): Buffer<ArrayBufferLike> => {
+const createStatusHandshake = (backend: { host: string; port: number }): Buffer<ArrayBufferLike> => {
   const payload = Buffer.concat([
     writeVarInt(config.minecraft.protocolVersion),
-    writeString(config.backend.host),
-    Buffer.from([(config.backend.port >> 8) & 0xff, config.backend.port & 0xff]),
+    writeString(backend.host),
+    Buffer.from([(backend.port >> 8) & 0xff, backend.port & 0xff]),
     writeVarInt(ClientIntent.Status),
   ]);
 
@@ -266,15 +266,17 @@ const createStatusRequest = (): Buffer<ArrayBufferLike> => createPacket(0x00);
 
 export const queryMinecraftStatus = (
   signal?: AbortSignal,
+  backend = config.backend,
 ): Promise<MinecraftStatus> => {
   return new Promise((resolve, reject) => {
     const socket = net.createConnection({
-      host: config.backend.host,
-      port: config.backend.port,
+      host: backend.host,
+      port: backend.port,
     });
     const packets = new PacketBuffer();
     let settled = false;
-    let timer: NodeJS.Timeout | undefined;
+    let connectTimer: NodeJS.Timeout | undefined;
+    let statusTimer: NodeJS.Timeout | undefined;
 
     const finish = (error?: unknown, status?: MinecraftStatus): void => {
       if (settled) {
@@ -283,8 +285,11 @@ export const queryMinecraftStatus = (
 
       settled = true;
 
-      if (timer) {
-        clearTimeout(timer);
+      if (connectTimer) {
+        clearTimeout(connectTimer);
+      }
+      if (statusTimer) {
+        clearTimeout(statusTimer);
       }
 
       signal?.removeEventListener("abort", abort);
@@ -303,9 +308,9 @@ export const queryMinecraftStatus = (
       finish(new Error("Minecraft status query was cancelled"));
     };
 
-    timer = setTimeout(() => {
-      finish(new Error("Minecraft status query timed out"));
-    }, config.backend.connectTimeoutMs);
+    connectTimer = setTimeout(() => {
+      finish(new Error("Minecraft status connection timed out"));
+    }, backend.connectTimeoutMs);
 
     if (signal?.aborted) {
       abort();
@@ -315,7 +320,14 @@ export const queryMinecraftStatus = (
     signal?.addEventListener("abort", abort, { once: true });
 
     socket.on("connect", () => {
-      socket.write(createStatusHandshake());
+      if (connectTimer) {
+        clearTimeout(connectTimer);
+        connectTimer = undefined;
+      }
+      statusTimer = setTimeout(() => {
+        finish(new Error("Minecraft status query timed out"));
+      }, backend.statusTimeoutMs);
+      socket.write(createStatusHandshake(backend));
       socket.write(createStatusRequest());
     });
 
@@ -350,10 +362,6 @@ export const queryMinecraftStatus = (
       }
     });
 
-    socket.once("timeout", () => {
-      finish(new Error("Minecraft status connection timed out"));
-    });
-    socket.setTimeout(config.backend.connectTimeoutMs);
     socket.once("error", (error) => finish(error));
     socket.once("close", () => {
       if (!settled) {

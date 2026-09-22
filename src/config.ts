@@ -72,7 +72,7 @@ export type PlayerProviderConfig =
 export const loadConfig = (environment: NodeJS.ProcessEnv = process.env) => {
   const backendStartTimeoutMs = parsePositiveInteger(
     "BACKEND_START_TIMEOUT_MS",
-    optional(environment, "BACKEND_START_TIMEOUT_MS", 120_000),
+    optional(environment, "BACKEND_START_TIMEOUT_MS", 300_000),
   );
 
   const backendStopTimeoutMs = parsePositiveInteger(
@@ -138,14 +138,18 @@ export const loadConfig = (environment: NodeJS.ProcessEnv = process.env) => {
     },
 
     backend: {
-      host: environment.BACKEND_HOST ?? "192.168.1.100",
+      host: requireString(environment, "BACKEND_HOST"),
       port: parsePort(
         "BACKEND_PORT",
         optional(environment, "BACKEND_PORT", DEFAULT_BACKEND_PORT),
       ),
       connectTimeoutMs: parsePositiveInteger(
         "BACKEND_CONNECT_TIMEOUT_MS",
-        optional(environment, "BACKEND_CONNECT_TIMEOUT_MS", 750),
+        optional(environment, "BACKEND_CONNECT_TIMEOUT_MS", 3_000),
+      ),
+      statusTimeoutMs: parsePositiveInteger(
+        "BACKEND_STATUS_TIMEOUT_MS",
+        optional(environment, "BACKEND_STATUS_TIMEOUT_MS", 5_000),
       ),
       startTimeoutMs: backendStartTimeoutMs,
       stopTimeoutMs: backendStopTimeoutMs,

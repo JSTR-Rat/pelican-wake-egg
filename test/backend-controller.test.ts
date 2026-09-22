@@ -6,6 +6,7 @@ process.env.PELICAN_API_KEY = "test-key";
 process.env.PELICAN_SERVER_ID = "test-server";
 process.env.MINECRAFT_VERSION_NAME = "26.3";
 process.env.MINECRAFT_PROTOCOL_VERSION = "777";
+process.env.BACKEND_HOST = "127.0.0.1";
 process.env.MANAGEMENT_HOST = "127.0.0.1";
 process.env.MANAGEMENT_PORT = "25585";
 process.env.MANAGEMENT_SECRET = "test-secret";

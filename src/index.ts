@@ -14,6 +14,7 @@ import {
 } from "./minecraft.js";
 import { ManagementPlayerDirectory } from "./minecraft-management.js";
 import { RconPlayerDirectory } from "./rcon.js";
+import { proxyToBackend } from "./proxy.js";
 import { pelicanClient } from "./pelican.js";
 import type { BackendState } from "./types.js";
 
@@ -66,62 +67,9 @@ const disconnectMessage = (state: BackendState): unknown => {
   }
 };
 
-const proxyToBackend = (client: Socket): void => {
-  const backend = net.createConnection({
-    host: config.backend.host,
-    port: config.backend.port,
-  });
-  let connected = false;
-  let settled = false;
-  let clientClosed = false;
-  let clientEnded = false;
+let nextConnectionId = 1;
 
-  backend.setTimeout(config.backend.connectTimeoutMs);
-
-  const forwardingFailure = (error: unknown): void => {
-    if (settled) {
-      return;
-    }
-
-    settled = true;
-    console.error(
-      `[proxy] backend forwarding failed: ${error instanceof Error ? error.message : String(error)}`,
-    );
-    client.destroy();
-    backend.destroy();
-    controller.requestReconciliation();
-  };
-
-  backend.once("connect", () => {
-    connected = true;
-    console.log(`[proxy] forwarding to backend ${config.backend.host}:${config.backend.port}`);
-    client.pipe(backend);
-    backend.pipe(client);
-    client.resume();
-  });
-
-  backend.once("timeout", () => forwardingFailure(new Error("backend connection timed out")));
-  backend.once("error", forwardingFailure);
-  client.once("error", (error) => console.error(`[proxy] client error: ${error.message}`));
-  client.once("close", () => {
-    clientClosed = true;
-    backend.destroy();
-  });
-  client.once("end", () => {
-    clientEnded = true;
-  });
-  backend.once("close", () => {
-    if (!connected && !settled) {
-      forwardingFailure(new Error("backend connection closed before connect"));
-    } else if (!clientClosed && !clientEnded && !client.destroyed && !settled) {
-      forwardingFailure(new Error("backend connection closed unexpectedly"));
-    } else if (!client.destroyed) {
-      client.destroy();
-    }
-  });
-};
-
-const handleLocalConnection = (client: Socket): void => {
+const handleLocalConnection = (client: Socket, connectionId: number): void => {
   const packets = new PacketBuffer();
   let handshake: ReturnType<typeof parseHandshakePacket> | null = null;
   let statusSent = false;
@@ -138,7 +86,7 @@ const handleLocalConnection = (client: Socket): void => {
           clearTimeout(handshakeTimeout);
 
           console.log(
-            `[proxy] handshake protocol=${handshake.protocolVersion} ` +
+            `[proxy][conn=${connectionId}] handshake protocol=${handshake.protocolVersion} ` +
             `host=${handshake.host}:${handshake.port} intent=${handshake.intent}`,
           );
 
@@ -193,15 +141,19 @@ const handleLocalConnection = (client: Socket): void => {
 };
 
 const server: Server = net.createServer((client) => {
+  const connectionId = nextConnectionId++;
+  console.log(
+    `[proxy][conn=${connectionId}] accepted client=${client.remoteAddress ?? "unknown"}:${client.remotePort ?? "unknown"}`,
+  );
   clients.add(client);
   client.pause();
 
   client.once("close", () => clients.delete(client));
 
   if (controller.isForwardingAllowed()) {
-    proxyToBackend(client);
+    proxyToBackend(client, connectionId, config.backend, controller);
   } else {
-    handleLocalConnection(client);
+    handleLocalConnection(client, connectionId);
     client.resume();
   }
 });

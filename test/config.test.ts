@@ -6,6 +6,7 @@ process.env.PELICAN_API_KEY = "test-key";
 process.env.PELICAN_SERVER_ID = "test-server";
 process.env.MINECRAFT_VERSION_NAME = "26.3";
 process.env.MINECRAFT_PROTOCOL_VERSION = "777";
+process.env.BACKEND_HOST = "127.0.0.1";
 process.env.MANAGEMENT_HOST = "127.0.0.1";
 process.env.MANAGEMENT_PORT = "25585";
 process.env.MANAGEMENT_SECRET = "secret";
@@ -18,6 +19,7 @@ const base = {
   PELICAN_SERVER_ID: "test-server",
   MINECRAFT_VERSION_NAME: "26.3",
   MINECRAFT_PROTOCOL_VERSION: "777",
+  BACKEND_HOST: "127.0.0.1",
 };
 
 test("management and rcon configurations validate independently", () => {
@@ -56,4 +58,11 @@ test("Minecraft version and protocol are configurable", () => {
     RCON_PASSWORD: "secret",
   });
   assert.deepEqual(config.minecraft, { versionName: "1.20.1", protocolVersion: 763 });
+});
+
+test("backend timeout defaults are separated", () => {
+  const loaded = loadConfig({ ...base, PLAYER_PROVIDER: "rcon", RCON_HOST: "127.0.0.1", RCON_PASSWORD: "secret" });
+  assert.equal(loaded.backend.connectTimeoutMs, 3_000);
+  assert.equal(loaded.backend.statusTimeoutMs, 5_000);
+  assert.equal(loaded.backend.startTimeoutMs, 300_000);
 });
